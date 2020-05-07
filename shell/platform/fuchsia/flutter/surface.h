@@ -2,27 +2,29 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#pragma once
+#ifndef FLUTTER_SHELL_PLATFORM_FUCHSIA_SURFACE_H_
+#define FLUTTER_SHELL_PLATFORM_FUCHSIA_SURFACE_H_
 
-#include "compositor_context.h"
+#include <memory>
+
 #include "flutter/fml/macros.h"
-#include "flutter/fml/memory/weak_ptr.h"
 #include "flutter/shell/common/surface.h"
+#include "flutter/shell/platform/fuchsia/flutter/session_connection.h"
 
 namespace flutter_runner {
 
 // The interface between the Flutter rasterizer and the underlying platform. May
 // be constructed on any thread but will be used by the engine only on the
 // raster thread.
-class Surface final : public flutter::Surface {
+class FuchsiaSurface {
  public:
-  Surface(std::string debug_label);
-
+  Surface(std::shared_ptr<SessionConnection> session_connection);
   ~Surface() override;
 
+  std::unique_ptr<Surface> CreateGPUSurface();
+
  private:
-  const bool valid_ = CanConnectToDisplay();
-  const std::string debug_label_;
+  std::shared_ptr<SessionConnection> session_connection_;
 
   // |flutter::Surface|
   bool IsValid() override;
@@ -43,3 +45,5 @@ class Surface final : public flutter::Surface {
 };
 
 }  // namespace flutter_runner
+
+#endif  // FLUTTER_SHELL_PLATFORM_FUCHSIA_SURFACE_H_

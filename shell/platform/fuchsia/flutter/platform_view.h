@@ -5,28 +5,26 @@
 #ifndef FLUTTER_SHELL_PLATFORM_FUCHSIA_PLATFORM_VIEW_H_
 #define FLUTTER_SHELL_PLATFORM_FUCHSIA_PLATFORM_VIEW_H_
 
-#include <map>
-#include <set>
-
 #include <fuchsia/ui/gfx/cpp/fidl.h>
 #include <fuchsia/ui/input/cpp/fidl.h>
 #include <fuchsia/ui/scenic/cpp/fidl.h>
+#include <lib/fidl/cpp/binding.h>
 #include <lib/fit/function.h>
+#include <lib/ui/scenic/cpp/id.h>
+
+#include <map>
+#include <set>
 
 #include "flutter/fml/macros.h"
 #include "flutter/lib/ui/window/viewport_metrics.h"
 #include "flutter/shell/common/platform_view.h"
 #include "flutter/shell/platform/fuchsia/flutter/accessibility_bridge.h"
-#include "lib/fidl/cpp/binding.h"
-#include "lib/ui/scenic/cpp/id.h"
-
-#include "surface.h"
+#include "flutter/shell/platform/fuchsia/flutter/session_connection.h"
+#include "flutter/shell/platform/fuchsia/flutter/surface.h"
 
 namespace flutter_runner {
 
 using OnMetricsUpdate = fit::function<void(const fuchsia::ui::gfx::Metrics&)>;
-using OnSizeChangeHint =
-    fit::function<void(float width_change_factor, float height_change_factor)>;
 using OnEnableWireframe = fit::function<void(bool)>;
 
 // The per engine component residing on the platform thread is responsible for
@@ -41,26 +39,18 @@ class PlatformView final : public flutter::PlatformView,
                            public AccessibilityBridge::Delegate {
  public:
   PlatformView(flutter::PlatformView::Delegate& delegate,
-               std::string debug_label,
                fuchsia::ui::views::ViewRef view_ref,
                flutter::TaskRunners task_runners,
                std::shared_ptr<sys::ServiceDirectory> runner_services,
                fidl::InterfaceHandle<fuchsia::sys::ServiceProvider>
                    parent_environment_service_provider,
+               std::shared_ptr<SessionConnection> session_connection,
                fidl::InterfaceRequest<fuchsia::ui::scenic::SessionListener>
                    session_listener_request,
                fit::closure on_session_listener_error_callback,
                OnMetricsUpdate session_metrics_did_change_callback,
-               OnSizeChangeHint session_size_change_hint_callback,
                OnEnableWireframe wireframe_enabled_callback,
                zx_handle_t vsync_event_handle);
-  PlatformView(flutter::PlatformView::Delegate& delegate,
-               std::string debug_label,
-               flutter::TaskRunners task_runners,
-               fidl::InterfaceHandle<fuchsia::sys::ServiceProvider>
-                   parent_environment_service_provider,
-               zx_handle_t vsync_event_handle);
-
   ~PlatformView();
 
   void UpdateViewportMetrics(const fuchsia::ui::gfx::Metrics& metrics);
@@ -77,40 +67,6 @@ class PlatformView final : public flutter::PlatformView,
   flutter::PointerDataDispatcherMaker GetDispatcherMaker() override;
 
  private:
-  const std::string debug_label_;
-  // TODO(MI4-2490): remove once ViewRefControl is passed to Scenic and kept
-  // alive there
-  const fuchsia::ui::views::ViewRef view_ref_;
-  std::unique_ptr<AccessibilityBridge> accessibility_bridge_;
-
-  fidl::Binding<fuchsia::ui::scenic::SessionListener> session_listener_binding_;
-  fit::closure session_listener_error_callback_;
-  OnMetricsUpdate metrics_changed_callback_;
-  OnSizeChangeHint size_change_hint_callback_;
-  OnEnableWireframe wireframe_enabled_callback_;
-
-  int current_text_input_client_ = 0;
-  fidl::Binding<fuchsia::ui::input::InputMethodEditorClient> ime_client_;
-  fuchsia::ui::input::InputMethodEditorPtr ime_;
-  fuchsia::ui::input::ImeServicePtr text_sync_service_;
-
-  fuchsia::sys::ServiceProviderPtr parent_environment_service_provider_;
-  std::unique_ptr<Surface> surface_;
-  flutter::LogicalMetrics metrics_;
-  fuchsia::ui::gfx::Metrics scenic_metrics_;
-  // last_text_state_ is the last state of the text input as reported by the IME
-  // or initialized by Flutter. We set it to null if Flutter doesn't want any
-  // input, since then there is no text input state at all.
-  std::unique_ptr<fuchsia::ui::input::TextInputState> last_text_state_;
-
-  std::set<int> down_pointers_;
-  std::map<
-      std::string /* channel */,
-      fit::function<void(
-          fml::RefPtr<flutter::PlatformMessage> /* message */)> /* handler */>
-      platform_message_handlers_;
-  zx_handle_t vsync_event_handle_ = 0;
-
   void RegisterPlatformMessageHandlers();
 
   void FlushViewportMetrics();
@@ -183,6 +139,38 @@ class PlatformView final : public flutter::PlatformView,
   // Channel handler for kPlatformViewsChannel.
   void HandleFlutterPlatformViewsChannelPlatformMessage(
       fml::RefPtr<flutter::PlatformMessage> message);
+
+  FuchsiaSurface surface_;
+
+  flutter::LogicalMetrics metrics_;
+  fuchsia::ui::gfx::Metrics scenic_metrics_;
+
+  const std::string debug_label_;
+  std::unique_ptr<AccessibilityBridge> accessibility_bridge_;
+
+  fidl::Binding<fuchsia::ui::scenic::SessionListener> session_listener_binding_;
+  fit::closure session_listener_error_callback_;
+  OnMetricsUpdate metrics_changed_callback_;
+  OnEnableWireframe wireframe_enabled_callback_;
+
+  int current_text_input_client_ = 0;
+  fidl::Binding<fuchsia::ui::input::InputMethodEditorClient> ime_client_;
+  fuchsia::ui::input::InputMethodEditorPtr ime_;
+  fuchsia::ui::input::ImeServicePtr text_sync_service_;
+  fuchsia::sys::ServiceProviderPtr parent_environment_service_provider_;
+
+  // last_text_state_ is the last state of the text input as reported by the IME
+  // or initialized by Flutter. We set it to null if Flutter doesn't want any
+  // input, since then there is no text input state at all.
+  std::unique_ptr<fuchsia::ui::input::TextInputState> last_text_state_;
+
+  std::set<int> down_pointers_;
+  std::map<
+      std::string /* channel */,
+      fit::function<void(
+          fml::RefPtr<flutter::PlatformMessage> /* message */)> /* handler */>
+      platform_message_handlers_;
+  zx_handle_t vsync_event_handle_ = 0;
 
   FML_DISALLOW_COPY_AND_ASSIGN(PlatformView);
 };

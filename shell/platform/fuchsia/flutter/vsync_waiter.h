@@ -23,14 +23,11 @@ class VsyncWaiter final : public flutter::VsyncWaiter {
       const fml::TimePoint last_frame_presentation_time,
       const fml::TimeDelta presentation_interval);
 
-  VsyncWaiter(std::string debug_label,
-              zx_handle_t session_present_handle,
+  VsyncWaiter(zx_handle_t session_present_handle,
               flutter::TaskRunners task_runners);
-
   ~VsyncWaiter() override;
 
  private:
-  const std::string debug_label_;
   async::Wait session_wait_;
   fml::WeakPtrFactory<VsyncWaiter> weak_factory_;
 

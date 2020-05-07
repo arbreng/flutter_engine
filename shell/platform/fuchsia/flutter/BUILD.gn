@@ -6,20 +6,12 @@ assert(is_fuchsia)
 
 import("//build/fuchsia/sdk.gni")
 import("//flutter/common/config.gni")
-import("//flutter/shell/gpu/gpu.gni")
 import("//flutter/testing/testing.gni")
 import("//flutter/tools/fuchsia/dart.gni")
 import("//flutter/tools/fuchsia/fuchsia_archive.gni")
 import("//flutter/tools/fuchsia/fuchsia_libs.gni")
 import("//flutter/vulkan/config.gni")
 import("engine_flutter_runner.gni")
-
-shell_gpu_configuration("fuchsia_gpu_configuration") {
-  enable_software = false
-  enable_gl = false
-  enable_vulkan = true
-  enable_metal = false
-}
 
 # Things that explicitly being excluded:
 # 1. Kernel snapshot framework mode.
@@ -452,6 +444,8 @@ executable("flutter_runner_scenic_unittests") {
     "runner.h",
     "session_connection.cc",
     "session_connection.h",
+    "software_surface_producer.cc",
+    "software_surface_producer.h",
     "surface.cc",
     "surface.h",
     "task_observers.cc",

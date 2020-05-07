@@ -18,11 +18,9 @@
 
 namespace flutter_runner {
 
-VsyncWaiter::VsyncWaiter(std::string debug_label,
-                         zx_handle_t session_present_handle,
+VsyncWaiter::VsyncWaiter(zx_handle_t session_present_handle,
                          flutter::TaskRunners task_runners)
     : flutter::VsyncWaiter(task_runners),
-      debug_label_(std::move(debug_label)),
       session_wait_(session_present_handle, SessionPresentSignal),
       weak_factory_(this),
       weak_factory_ui_(nullptr) {

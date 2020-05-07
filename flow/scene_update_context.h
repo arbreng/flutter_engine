@@ -5,6 +5,8 @@
 #ifndef FLUTTER_FLOW_SCENE_UPDATE_CONTEXT_H_
 #define FLUTTER_FLOW_SCENE_UPDATE_CONTEXT_H_
 
+#include <lib/ui/scenic/cpp/resources.h>
+
 #include <cfloat>
 #include <memory>
 #include <set>
@@ -15,7 +17,6 @@
 #include "flutter/fml/compiler_specific.h"
 #include "flutter/fml/logging.h"
 #include "flutter/fml/macros.h"
-#include "lib/ui/scenic/cpp/resources.h"
 #include "third_party/skia/include/core/SkRect.h"
 #include "third_party/skia/include/core/SkSurface.h"
 
@@ -58,6 +59,8 @@ class SceneUpdateContext {
    public:
     virtual ~SurfaceProducer() = default;
 
+    virtual GrContext* gr_context() = 0;
+
     // The produced surface owns the entity_node and has a layer_key for
     // retained rendering. The surface will only be retained if the layer_key
     // has a non-null layer pointer (layer_key.id()).
@@ -65,6 +68,8 @@ class SceneUpdateContext {
         const SkISize& size,
         const LayerRasterCacheKey& layer_key,
         std::unique_ptr<scenic::EntityNode> entity_node) = 0;
+    virtual void SubmitSurface(
+        std::unique_ptr<SurfaceProducerSurface> surface) = 0;
 
     // Query a retained entity node (owned by a retained surface) for retained
     // rendering.
@@ -72,8 +77,8 @@ class SceneUpdateContext {
     virtual scenic::EntityNode* GetRetainedNode(
         const LayerRasterCacheKey& key) = 0;
 
-    virtual void SubmitSurface(
-        std::unique_ptr<SurfaceProducerSurface> surface) = 0;
+    virtual void OnSurfacesPresented(
+        std::vector<std::unique_ptr<SurfaceProducerSurface>> surfaces) = 0;
   };
 
   class Entity {

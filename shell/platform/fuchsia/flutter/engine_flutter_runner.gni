@@ -5,6 +5,14 @@
 assert(is_fuchsia)
 
 import("//build/fuchsia/sdk.gni")
+import("//flutter/shell/gpu/gpu.gni")
+
+shell_gpu_configuration("fuchsia_gpu_configuration") {
+  enable_software = true
+  enable_gl = false
+  enable_vulkan = true
+  enable_metal = false
+}
 
 # Builds a flutter_runner
 #
@@ -64,6 +72,8 @@ template("flutter_runner") {
       "runner.h",
       "session_connection.cc",
       "session_connection.h",
+      "software_surface_producer.cc",
+      "software_surface_producer.h",
       "surface.cc",
       "surface.h",
       "task_observers.cc",
@@ -88,7 +98,7 @@ template("flutter_runner") {
     # The use of these dependencies is temporary and will be moved behind the
     # embedder API.
     flutter_deps = [
-      "../flutter:fuchsia_gpu_configuration",
+      ":fuchsia_gpu_configuration",
       "//flutter/assets",
       "//flutter/common",
       "//flutter/flow",

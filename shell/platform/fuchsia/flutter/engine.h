@@ -67,9 +67,6 @@ class Engine final {
   void Terminate();
 
   void OnSessionMetricsDidChange(const fuchsia::ui::gfx::Metrics& metrics);
-  void OnSessionSizeChangeHint(float width_change_factor,
-                               float height_change_factor);
-
   void OnDebugWireframeSettingsChanged(bool enabled);
 
   FML_DISALLOW_COPY_AND_ASSIGN(Engine);

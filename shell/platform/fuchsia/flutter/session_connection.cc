@@ -2,13 +2,15 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-#include "session_connection.h"
+#include "flutter/shell/platform/fuchsia/flutter/session_connection.h"
+
+#include <lib/ui/scenic/cpp/commands.h>
 
 #include "flutter/fml/make_copyable.h"
-#include "lib/fidl/cpp/optional.h"
-#include "lib/ui/scenic/cpp/commands.h"
-#include "vsync_recorder.h"
-#include "vsync_waiter.h"
+#include "flutter/shell/platform/fuchsia/flutter/software_surface_producer.h"
+#include "flutter/shell/platform/fuchsia/flutter/vsync_recorder.h"
+#include "flutter/shell/platform/fuchsia/flutter/vsync_waiter.h"
+#include "flutter/shell/platform/fuchsia/flutter/vulkan_surface_producer.h"
 
 namespace flutter_runner {
 
@@ -18,10 +20,10 @@ SessionConnection::SessionConnection(
     scenic::ViewRefPair view_ref_pair,
     fidl::InterfaceHandle<fuchsia::ui::scenic::Session> session,
     fml::closure session_error_callback,
-    on_frame_presented_event on_frame_presented_callback,
-    zx_handle_t vsync_event_handle)
-    : debug_label_(std::move(debug_label)),
-      session_wrapper_(session.Bind(), nullptr),
+    OnFramePresented on_frame_presented_callback,
+    zx_handle_t vsync_event_handle,
+    bool software)
+    : session_wrapper_(session.Bind(), nullptr),
       root_view_(&session_wrapper_,
                  std::move(view_token),
                  std::move(view_ref_pair.control_ref),
@@ -29,10 +31,13 @@ SessionConnection::SessionConnection(
                  debug_label),
       root_node_(&session_wrapper_),
       surface_producer_(
-          std::make_unique<VulkanSurfaceProducer>(&session_wrapper_)),
+          software
+              ? std::make_unique<SoftwareSurfaceProducer>(&session_wrapper_)
+              : std::make_unique<VulkanSurfaceProducer>(&session_wrapper_)),
       scene_update_context_(&session_wrapper_, surface_producer_.get()),
       on_frame_presented_callback_(std::move(on_frame_presented_callback)),
-      vsync_event_handle_(vsync_event_handle) {
+      vsync_event_handle_(vsync_event_handle),
+      software_(software) {
   session_wrapper_.set_error_handler(
       [callback = session_error_callback](zx_status_t status) { callback(); });
 
@@ -63,7 +68,7 @@ SessionConnection::SessionConnection(
       }  // callback
   );
 
-  session_wrapper_.SetDebugName(debug_label_);
+  session_wrapper_.SetDebugName(debug_label);
 
   root_view_.AddChild(root_node_);
   root_node_.SetEventMask(fuchsia::ui::gfx::kMetricsEventMask |
@@ -91,8 +96,7 @@ SessionConnection::SessionConnection(
 
 SessionConnection::~SessionConnection() = default;
 
-void SessionConnection::Present(
-    flutter::CompositorContext::ScopedFrame* frame) {
+void SessionConnection::Present() {
   TRACE_EVENT0("gfx", "SessionConnection::Present");
 
   TRACE_FLOW_BEGIN("gfx", "SessionConnection::PresentSession",
@@ -112,21 +116,6 @@ void SessionConnection::Present(
     present_session_pending_ = true;
     ToggleSignal(vsync_event_handle_, false);
   }
-
-  if (frame) {
-    // Execute paint tasks and signal fences.
-    auto surfaces_to_submit = scene_update_context_.ExecutePaintTasks(*frame);
-
-    // Tell the surface producer that a present has occurred so it can perform
-    // book-keeping on buffer caches.
-    surface_producer_->OnSurfacesPresented(std::move(surfaces_to_submit));
-  }
-}
-
-void SessionConnection::OnSessionSizeChangeHint(float width_change_factor,
-                                                float height_change_factor) {
-  surface_producer_->OnSessionSizeChangeHint(width_change_factor,
-                                             height_change_factor);
 }
 
 void SessionConnection::set_enable_wireframe(bool enable) {

@@ -35,8 +35,14 @@ enum class RasterStatus {
   kFailed
 };
 
+// This object manages the interaction between the Flutter |Rasterizer| and the
+// embedder's composior.
 class CompositorContext {
  public:
+  // This object represents a fully-configured frame's state, including the
+  // |ExternalViewEmbedder| which represents the embedder's composition state.
+  // The frame determines the structure of how the |Rasterizer| traverses the
+  // |LayerTree| when rendering it down into 1 or more embedder surfaces.
   class ScopedFrame {
    public:
     ScopedFrame(CompositorContext& context,

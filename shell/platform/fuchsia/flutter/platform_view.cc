@@ -79,12 +79,12 @@ void SetInterfaceErrorHandler(fidl::Binding<T>& binding, std::string name) {
 
 PlatformView::PlatformView(
     flutter::PlatformView::Delegate& delegate,
-    std::string debug_label,
     fuchsia::ui::views::ViewRef view_ref,
     flutter::TaskRunners task_runners,
     std::shared_ptr<sys::ServiceDirectory> runner_services,
     fidl::InterfaceHandle<fuchsia::sys::ServiceProvider>
         parent_environment_service_provider_handle,
+    std::shared_ptr<SessionConnection> session_connection,
     fidl::InterfaceRequest<fuchsia::ui::scenic::SessionListener>
         session_listener_request,
     fit::closure session_listener_error_callback,
@@ -93,8 +93,6 @@ PlatformView::PlatformView(
     OnEnableWireframe wireframe_enabled_callback,
     zx_handle_t vsync_event_handle)
     : flutter::PlatformView(delegate, std::move(task_runners)),
-      debug_label_(std::move(debug_label)),
-      view_ref_(std::move(view_ref)),
       session_listener_binding_(this, std::move(session_listener_request)),
       session_listener_error_callback_(
           std::move(session_listener_error_callback)),
@@ -102,7 +100,7 @@ PlatformView::PlatformView(
       size_change_hint_callback_(std::move(session_size_change_hint_callback)),
       wireframe_enabled_callback_(std::move(wireframe_enabled_callback)),
       ime_client_(this),
-      surface_(std::make_unique<Surface>(debug_label_)),
+      surface_(std::make_unique<Surface>(std::move(session_connection))),
       vsync_event_handle_(vsync_event_handle) {
   // Register all error handlers.
   SetInterfaceErrorHandler(session_listener_binding_, "SessionListener");
@@ -121,10 +119,8 @@ PlatformView::PlatformView(
   // Finally! Register the native platform message handlers.
   RegisterPlatformMessageHandlers();
 
-  fuchsia::ui::views::ViewRef accessibility_view_ref;
-  view_ref_.Clone(&accessibility_view_ref);
   accessibility_bridge_ = std::make_unique<AccessibilityBridge>(
-      *this, runner_services, std::move(accessibility_view_ref));
+      *this, runner_services, std::move(view_ref));
 }
 
 PlatformView::~PlatformView() = default;
@@ -202,7 +198,6 @@ void PlatformView::FlushViewportMetrics() {
   });
 }
 
-// |fuchsia::ui::input::InputMethodEditorClient|
 void PlatformView::DidUpdateState(
     fuchsia::ui::input::TextInputState state,
     std::unique_ptr<fuchsia::ui::input::InputEvent> input_event) {
@@ -258,7 +253,6 @@ void PlatformView::DidUpdateState(
   }
 }
 
-// |fuchsia::ui::input::InputMethodEditorClient|
 void PlatformView::OnAction(fuchsia::ui::input::InputMethodAction action) {
   rapidjson::Document document;
   auto& allocator = document.GetAllocator();
@@ -558,21 +552,15 @@ void PlatformView::DeactivateIme() {
   }
 }
 
-// |flutter::PlatformView|
 std::unique_ptr<flutter::VsyncWaiter> PlatformView::CreateVSyncWaiter() {
-  return std::make_unique<flutter_runner::VsyncWaiter>(
-      debug_label_, vsync_event_handle_, task_runners_);
+  return std::make_unique<flutter_runner::VsyncWaiter>(vsync_event_handle_,
+                                                       task_runners_);
 }
 
-// |flutter::PlatformView|
 std::unique_ptr<flutter::Surface> PlatformView::CreateRenderingSurface() {
-  // This platform does not repeatly lose and gain a surface connection. So the
-  // surface is setup once during platform view setup and returned to the
-  // shell on the initial (and only) |NotifyCreated| call.
-  return std::move(surface_);
+  return surface_.CreateGPUSurface();
 }
 
-// |flutter::PlatformView|
 void PlatformView::HandlePlatformMessage(
     fml::RefPtr<flutter::PlatformMessage> message) {
   if (!message) {
@@ -590,8 +578,6 @@ void PlatformView::HandlePlatformMessage(
   found->second(std::move(message));
 }
 
-// |flutter::PlatformView|
-// |flutter_runner::AccessibilityBridge::Delegate|
 void PlatformView::SetSemanticsEnabled(bool enabled) {
   flutter::PlatformView::SetSemanticsEnabled(enabled);
   if (enabled) {
@@ -602,27 +588,22 @@ void PlatformView::SetSemanticsEnabled(bool enabled) {
   }
 }
 
-// |flutter::PlatformView|
-// |flutter_runner::AccessibilityBridge::Delegate|
 void PlatformView::DispatchSemanticsAction(int32_t node_id,
                                            flutter::SemanticsAction action) {
   flutter::PlatformView::DispatchSemanticsAction(node_id, action, {});
 }
 
-// |flutter::PlatformView|
 void PlatformView::UpdateSemantics(
     flutter::SemanticsNodeUpdates update,
     flutter::CustomAccessibilityActionUpdates actions) {
   accessibility_bridge_->AddSemanticsNodeUpdate(update);
 }
 
-// Channel handler for kAccessibilityChannel
 void PlatformView::HandleAccessibilityChannelPlatformMessage(
     fml::RefPtr<flutter::PlatformMessage> message) {
   FML_DCHECK(message->channel() == kAccessibilityChannel);
 }
 
-// Channel handler for kFlutterPlatformChannel
 void PlatformView::HandleFlutterPlatformChannelPlatformMessage(
     fml::RefPtr<flutter::PlatformMessage> message) {
   FML_DCHECK(message->channel() == kFlutterPlatformChannel);
@@ -643,7 +624,6 @@ void PlatformView::HandleFlutterPlatformChannelPlatformMessage(
   message->response()->CompleteEmpty();
 }
 
-// Channel handler for kTextInputChannel
 void PlatformView::HandleFlutterTextInputChannelPlatformMessage(
     fml::RefPtr<flutter::PlatformMessage> message) {
   FML_DCHECK(message->channel() == kTextInputChannel);

@@ -15,32 +15,35 @@
 #include <lib/ui/scenic/cpp/session.h>
 #include <lib/ui/scenic/cpp/view_ref_pair.h>
 
-#include "flutter/flow/compositor_context.h"
 #include "flutter/flow/scene_update_context.h"
 #include "flutter/fml/closure.h"
 #include "flutter/fml/macros.h"
 #include "flutter/fml/trace_event.h"
-#include "vulkan_surface_producer.h"
 
 namespace flutter_runner {
 
-using on_frame_presented_event =
-    std::function<void(fuchsia::scenic::scheduling::FramePresentedInfo)>;
-
-// The component residing on the raster thread that is responsible for
-// maintaining the Scenic session connection and presenting node updates.
-class SessionConnection final {
+// This component is responsible for maintaining the Scenic session connection
+// and presenting node updates.
+//
+// This component must reside on the raster thread, but it can be created on any
+// thread.
+class SessionConnection {
  public:
+  using OnFramePresented =
+      std::function<void(fuchsia::scenic::scheduling::FramePresentedInfo)>;
+
   SessionConnection(std::string debug_label,
                     fuchsia::ui::views::ViewToken view_token,
                     scenic::ViewRefPair view_ref_pair,
                     fidl::InterfaceHandle<fuchsia::ui::scenic::Session> session,
                     fml::closure session_error_callback,
                     on_frame_presented_event on_frame_presented_callback,
-                    zx_handle_t vsync_event_handle);
+                    zx_handle_t vsync_event_handle,
+                    bool software);
 
   ~SessionConnection();
 
+  bool is_software() const { return software_; }
   bool has_metrics() const { return scene_update_context_.has_metrics(); }
 
   const fuchsia::ui::gfx::MetricsPtr& metrics() const {
@@ -63,29 +66,29 @@ class SessionConnection final {
   scenic::ContainerNode& root_node() { return root_node_; }
   scenic::View* root_view() { return &root_view_; }
 
-  void Present(flutter::CompositorContext::ScopedFrame* frame);
+  void Present();
 
-  void OnSessionSizeChangeHint(float width_change_factor,
-                               float height_change_factor);
-
-  VulkanSurfaceProducer* vulkan_surface_producer() {
+  flutter::SceneUpdateContext::SurfaceProducer* surface_producer() {
     return surface_producer_.get();
   }
 
  private:
-  const std::string debug_label_;
-  scenic::Session session_wrapper_;
+  static void ToggleSignal(zx_handle_t handle, bool raise);
 
+  void EnqueueClearOps();
+  void PresentSession();
+
+  scenic::Session session_wrapper_;
   scenic::View root_view_;
   scenic::EntityNode root_node_;
 
-  std::unique_ptr<VulkanSurfaceProducer> surface_producer_;
+  std::unique_ptr<flutter::SceneUpdateContext::SurfaceProducer>
+      surface_producer_;
   flutter::SceneUpdateContext scene_update_context_;
-  on_frame_presented_event on_frame_presented_callback_;
+
+  OnFramePresented on_frame_presented_callback_;
 
   zx_handle_t vsync_event_handle_;
-
-  bool initialized_ = false;
 
   // A flow event trace id for following |Session::Present| calls into
   // Scenic.  This will be incremented each |Session::Present| call.  By
@@ -100,16 +103,11 @@ class SessionConnection final {
   // called Present2() before receiving an OnFramePresented() event.
   static constexpr int kMaxFramesInFlight = 3;
   int frames_in_flight_ = 0;
-
   int frames_in_flight_allowed_ = 0;
 
+  bool software_ = false;
+  bool initialized_ = false;
   bool present_session_pending_ = false;
-
-  void EnqueueClearOps();
-
-  void PresentSession();
-
-  static void ToggleSignal(zx_handle_t handle, bool raise);
 
   FML_DISALLOW_COPY_AND_ASSIGN(SessionConnection);
 };
