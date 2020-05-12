@@ -4,10 +4,12 @@
 
 #include "flutter/flow/scene_update_context.h"
 
+#include <lib/ui/scenic/cpp/commands.h>
+
 #include "flutter/flow/layers/layer.h"
 #include "flutter/flow/matrix_decomposition.h"
+#include "flutter/fml/logging.h"
 #include "flutter/fml/trace_event.h"
-#include "include/core/SkColor.h"
 
 namespace flutter {
 
@@ -50,10 +52,35 @@ static void SetEntityNodeClipPlanes(scenic::EntityNode& entity_node,
   entity_node.SetClipPlanes(std::move(clip_planes));
 }
 
-SceneUpdateContext::SceneUpdateContext(scenic::Session* session,
-                                       SurfaceProducer* surface_producer)
-    : session_(session), surface_producer_(surface_producer) {
-  FML_DCHECK(surface_producer_ != nullptr);
+SceneUpdateContext::SceneUpdateContext(
+    std::string debug_label,
+    fuchsia::ui::views::ViewToken view_token,
+    scenic::ViewRefPair view_ref_pair,
+    std::unique_ptr<SurfaceProducer> surface_producer,
+    scenic::Session* session)
+    : session_(session),
+      root_view_(session_,
+                 std::move(view_token),
+                 std::move(view_ref_pair.control_ref),
+                 std::move(view_ref_pair.view_ref),
+                 std::move(debug_label)),
+      root_node_(session_),
+      surface_producer_(std::move(surface_producer)) {
+  root_view_.AddChild(root_node_);
+  root_node_.SetEventMask(fuchsia::ui::gfx::kMetricsEventMask);
+}
+
+SceneUpdateContext::~SceneUpdateContext() = default;
+
+void SceneUpdateContext::SetDebugViewBoundsEnabled(bool enable) {
+  session_->Enqueue(
+      scenic::NewSetEnableDebugViewBoundsCmd(root_view_.id(), enable));
+}
+
+void SceneUpdateContext::EnqueueClearOps() {
+  // We are going to be sending down a fresh node hierarchy every frame. So
+  // just enqueue a detach op on the imported root node.
+  session_->Enqueue(scenic::NewDetachChildrenCmd(root_node_.id()));
 }
 
 void SceneUpdateContext::CreateFrame(scenic::EntityNode entity_node,
@@ -71,7 +98,7 @@ void SceneUpdateContext::CreateFrame(scenic::EntityNode entity_node,
 
   // and possibly for its texture.
   // TODO(SCN-137): Need to be able to express the radii as vectors.
-  scenic::ShapeNode shape_node(session());
+  scenic::ShapeNode shape_node(session_);
   scenic::Rectangle shape(session_,       // session
                           rrect.width(),  // width
                           rrect.height()  // height
@@ -85,7 +112,7 @@ void SceneUpdateContext::CreateFrame(scenic::EntityNode entity_node,
   if (paint_bounds.isEmpty() || !paint_bounds.intersects(shape_bounds))
     paint_layers.clear();
 
-  scenic::Material material(session());
+  scenic::Material material(session_);
   shape_node.SetMaterial(material);
   entity_node.AddChild(shape_node);
 
@@ -93,13 +120,9 @@ void SceneUpdateContext::CreateFrame(scenic::EntityNode entity_node,
   if (paint_layers.empty()) {
     SetMaterialColor(material, color, opacity);
   } else {
-    // Apply current metrics and transformation scale factors.
-    const float scale_x = ScaleX();
-    const float scale_y = ScaleY();
-
     // Apply a texture to the whole shape.
-    SetMaterialTextureAndColor(material, color, opacity, scale_x, scale_y,
-                               shape_bounds, std::move(paint_layers), layer,
+    SetMaterialTextureAndColor(material, color, opacity, shape_bounds,
+                               std::move(paint_layers), layer,
                                std::move(entity_node));
   }
 }
@@ -108,15 +131,13 @@ void SceneUpdateContext::SetMaterialTextureAndColor(
     scenic::Material& material,
     SkColor color,
     SkAlpha opacity,
-    SkScalar scale_x,
-    SkScalar scale_y,
     const SkRect& paint_bounds,
     std::vector<Layer*> paint_layers,
     Layer* layer,
     scenic::EntityNode entity_node) {
-  scenic::Image* image = GenerateImageIfNeeded(
-      color, scale_x, scale_y, paint_bounds, std::move(paint_layers), layer,
-      std::move(entity_node));
+  scenic::Image* image =
+      GenerateImageIfNeeded(color, paint_bounds, std::move(paint_layers), layer,
+                            std::move(entity_node));
 
   if (image != nullptr) {
     // The final shape's color is material_color * texture_color.  The passed in
@@ -142,8 +163,6 @@ void SceneUpdateContext::SetMaterialColor(scenic::Material& material,
 
 scenic::Image* SceneUpdateContext::GenerateImageIfNeeded(
     SkColor color,
-    SkScalar scale_x,
-    SkScalar scale_y,
     const SkRect& paint_bounds,
     std::vector<Layer*> paint_layers,
     Layer* layer,
@@ -152,9 +171,13 @@ scenic::Image* SceneUpdateContext::GenerateImageIfNeeded(
   if (paint_layers.empty())
     return nullptr;
 
+  // Apply current metrics and transformation scale factors.
+  SkMatrix transform = Matrix();
+  SkISize physical_size =
+      SkISize::Make(paint_bounds.width() * transform.getScaleX(),
+                    paint_bounds.height() * transform.getScaleY());
+
   // Bail if the physical bounds are empty after rounding.
-  SkISize physical_size = SkISize::Make(paint_bounds.width() * scale_x,
-                                        paint_bounds.height() * scale_y);
   if (physical_size.isEmpty())
     return nullptr;
 
@@ -180,29 +203,34 @@ scenic::Image* SceneUpdateContext::GenerateImageIfNeeded(
   paint_tasks_.push_back({.surface = std::move(surface),
                           .left = paint_bounds.left(),
                           .top = paint_bounds.top(),
-                          .scale_x = scale_x,
-                          .scale_y = scale_y,
+                          .scale_x = transform.getScaleX(),
+                          .scale_y = transform.getScaleY(),
                           .background_color = color,
                           .layers = std::move(paint_layers)});
   return image;
 }
 
-std::vector<
-    std::unique_ptr<flutter::SceneUpdateContext::SurfaceProducerSurface>>
-SceneUpdateContext::ExecutePaintTasks(CompositorContext::ScopedFrame& frame) {
+void SceneUpdateContext::ExecutePaintTasks(const Stopwatch& raster_time,
+                                           const Stopwatch& ui_time,
+                                           TextureRegistry& texture_registry,
+                                           const RasterCache* raster_cache,
+                                           GrContext* gr_context) {
   TRACE_EVENT0("flutter", "SceneUpdateContext::ExecutePaintTasks");
   std::vector<std::unique_ptr<SurfaceProducerSurface>> surfaces_to_submit;
   for (auto& task : paint_tasks_) {
     FML_DCHECK(task.surface);
     SkCanvas* canvas = task.surface->GetSkiaSurface()->getCanvas();
+    // TODO(dworsham): Passing `canvas` for `internal_nodes_canvas` here is
+    // wrong (see the comment above PaintContext). It should be an NWay canvas
+    // that applies its operations to all of the task canvases.
     Layer::PaintContext context = {canvas,
                                    canvas,
-                                   frame.gr_context(),
+                                   gr_context,
                                    nullptr,
-                                   frame.context().raster_time(),
-                                   frame.context().ui_time(),
-                                   frame.context().texture_registry(),
-                                   &frame.context().raster_cache(),
+                                   raster_time,
+                                   ui_time,
+                                   texture_registry,
+                                   raster_cache,
                                    false,
                                    frame_physical_depth_,
                                    frame_device_pixel_ratio_};
@@ -220,13 +248,16 @@ SceneUpdateContext::ExecutePaintTasks(CompositorContext::ScopedFrame& frame) {
   alpha_ = 1.f;
   topmost_global_scenic_elevation_ = kScenicZElevationBetweenLayers;
   scenic_elevation_ = 0.f;
-  return surfaces_to_submit;
+
+  // Paint all layers, then tell the surface producer that a present has
+  // occurred so it can perform book-keeping on buffer caches.
+  surface_producer_->OnSurfacesPresented(std::move(surfaces_to_submit));
 }
 
 SceneUpdateContext::Entity::Entity(SceneUpdateContext& context)
     : context_(context),
       previous_entity_(context.top_entity_),
-      entity_node_(context.session()) {
+      entity_node_(context.session_) {
   if (previous_entity_)
     previous_entity_->embedder_node().AddChild(entity_node_);
   context.top_entity_ = this;
@@ -302,7 +333,7 @@ SceneUpdateContext::Frame::Frame(SceneUpdateContext& context,
       rrect_(rrect),
       color_(color),
       opacity_(opacity),
-      opacity_node_(context.session()),
+      opacity_node_(context.session_),
       paint_bounds_(SkRect::MakeEmpty()),
       layer_(layer) {
   entity_node().SetLabel(label);

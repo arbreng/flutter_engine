@@ -95,10 +95,6 @@ Engine::Engine(Delegate& delegate,
   OnMetricsUpdate on_session_metrics_change_callback = std::bind(
       &Engine::OnSessionMetricsDidChange, this, std::placeholders::_1);
 
-  OnSizeChangeHint on_session_size_change_hint_callback =
-      std::bind(&Engine::OnSessionSizeChangeHint, this, std::placeholders::_1,
-                std::placeholders::_2);
-
   OnEnableWireframe on_enable_wireframe_callback = std::bind(
       &Engine::OnDebugWireframeSettingsChanged, this, std::placeholders::_1);
 
@@ -135,8 +131,6 @@ Engine::Engine(Delegate& delegate,
                std::move(on_session_listener_error_callback),
            on_session_metrics_change_callback =
                std::move(on_session_metrics_change_callback),
-           on_session_size_change_hint_callback =
-               std::move(on_session_size_change_hint_callback),
            on_enable_wireframe_callback =
                std::move(on_enable_wireframe_callback),
            vsync_handle = vsync_event_.get(),
@@ -151,7 +145,6 @@ Engine::Engine(Delegate& delegate,
                 std::move(session_listener_request),  // session listener
                 std::move(on_session_listener_error_callback),
                 std::move(on_session_metrics_change_callback),
-                std::move(on_session_size_change_hint_callback),
                 std::move(on_enable_wireframe_callback),
                 vsync_handle,  // vsync handle
                 product_config);
@@ -163,9 +156,11 @@ Engine::Engine(Delegate& delegate,
   // This handles the fidl error callback when the Session connection is
   // broken. The SessionListener interface also has an OnError method, which is
   // invoked on the platform thread (in PlatformView).
-  fml::closure on_session_error_callback =
+  SessionConnection::SessionErrorCallback session_error_callback =
       [dispatcher = async_get_default_dispatcher(),
-       weak = weak_factory_.GetWeakPtr()]() {
+       weak = weak_factory_.GetWeakPtr()](zx_status_t status) {
+        FML_LOG(ERROR) << "fuhsia::ui::scenic::Session error: "
+                       << zx_status_get_string(status);
         async::PostTask(dispatcher, [weak]() {
           if (weak) {
             weak->Terminate();
@@ -189,8 +184,9 @@ Engine::Engine(Delegate& delegate,
                          view_token = std::move(view_token),        //
                          view_ref_pair = std::move(view_ref_pair),  //
                          session = std::move(session),              //
-                         on_session_error_callback,                 //
-                         vsync_event = vsync_event_.get()           //
+                         session_error_callback =
+                             std::move(session_error_callback),  //
+                         vsync_event = vsync_event_.get()        //
   ](flutter::Shell& shell) mutable {
         std::unique_ptr<flutter_runner::CompositorContext> compositor_context;
         {
@@ -200,9 +196,10 @@ Engine::Engine(Delegate& delegate,
                   thread_label,           // debug label
                   std::move(view_token),  // scenic view we attach our tree to
                   std::move(view_ref_pair),  // scenic view ref/view ref control
-                  std::move(session),        // scenic session
-                  on_session_error_callback,  // session did encounter error
-                  vsync_event);               // vsync event handle
+                  session.Bind(),            // scenic session
+                  std::move(session_error_callback),  // session FIDL error
+                  vsync_event                         // vsync event handle
+              );
         }
 
         return std::make_unique<flutter::Rasterizer>(
@@ -480,10 +477,10 @@ void Engine::OnSessionMetricsDidChange(
       [rasterizer = shell_->GetRasterizer(), metrics]() {
         if (rasterizer) {
           auto compositor_context =
-              reinterpret_cast<flutter_runner::CompositorContext*>(
+              static_cast<flutter_runner::CompositorContext*>(
                   rasterizer->compositor_context());
 
-          compositor_context->OnSessionMetricsDidChange(metrics);
+          compositor_context->OnSessionMetricsChanged(metrics);
         }
       });
 }
@@ -497,29 +494,10 @@ void Engine::OnDebugWireframeSettingsChanged(bool enabled) {
       [rasterizer = shell_->GetRasterizer(), enabled]() {
         if (rasterizer) {
           auto compositor_context =
-              reinterpret_cast<flutter_runner::CompositorContext*>(
+              static_cast<flutter_runner::CompositorContext*>(
                   rasterizer->compositor_context());
 
-          compositor_context->OnWireframeEnabled(enabled);
-        }
-      });
-}
-
-void Engine::OnSessionSizeChangeHint(float width_change_factor,
-                                     float height_change_factor) {
-  if (!shell_) {
-    return;
-  }
-
-  shell_->GetTaskRunners().GetRasterTaskRunner()->PostTask(
-      [rasterizer = shell_->GetRasterizer(), width_change_factor,
-       height_change_factor]() {
-        if (rasterizer) {
-          auto compositor_context = reinterpret_cast<CompositorContext*>(
-              rasterizer->compositor_context());
-
-          compositor_context->OnSessionSizeChangeHint(width_change_factor,
-                                                      height_change_factor);
+          compositor_context->OnDebugViewBoundsEnabled(enabled);
         }
       });
 }

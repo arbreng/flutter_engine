@@ -26,8 +26,6 @@
 namespace flutter_runner {
 
 using OnMetricsUpdate = fit::function<void(const fuchsia::ui::gfx::Metrics&)>;
-using OnSizeChangeHint =
-    fit::function<void(float width_change_factor, float height_change_factor)>;
 using OnEnableWireframe = fit::function<void(bool)>;
 
 // The per engine component residing on the platform thread is responsible for
@@ -52,7 +50,6 @@ class PlatformView final : public flutter::PlatformView,
                    session_listener_request,
                fit::closure on_session_listener_error_callback,
                OnMetricsUpdate session_metrics_did_change_callback,
-               OnSizeChangeHint session_size_change_hint_callback,
                OnEnableWireframe wireframe_enabled_callback,
                zx_handle_t vsync_event_handle,
                FlutterRunnerProductConfiguration product_config);
@@ -88,7 +85,6 @@ class PlatformView final : public flutter::PlatformView,
   fidl::Binding<fuchsia::ui::scenic::SessionListener> session_listener_binding_;
   fit::closure session_listener_error_callback_;
   OnMetricsUpdate metrics_changed_callback_;
-  OnSizeChangeHint size_change_hint_callback_;
   OnEnableWireframe wireframe_enabled_callback_;
 
   int current_text_input_client_ = 0;

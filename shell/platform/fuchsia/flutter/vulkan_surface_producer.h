@@ -27,10 +27,22 @@ class VulkanSurfaceProducer final
       public vulkan::VulkanProvider {
  public:
   VulkanSurfaceProducer(scenic::Session* scenic_session);
-
   ~VulkanSurfaceProducer();
 
+  GrContext* gr_context() { return context_.get(); }
+
   bool IsValid() const { return valid_; }
+
+  // |flutter::SceneUpdateContext::SurfaceProducer|
+  bool HasRetainedNode(const flutter::LayerRasterCacheKey& key) const override {
+    return surface_pool_->HasRetainedNode(key);
+  }
+
+  // |flutter::SceneUpdateContext::SurfaceProducer|
+  scenic::EntityNode* GetRetainedNode(
+      const flutter::LayerRasterCacheKey& key) override {
+    return surface_pool_->GetRetainedNode(key);
+  }
 
   // |flutter::SceneUpdateContext::SurfaceProducer|
   std::unique_ptr<flutter::SceneUpdateContext::SurfaceProducerSurface>
@@ -43,37 +55,22 @@ class VulkanSurfaceProducer final
       std::unique_ptr<flutter::SceneUpdateContext::SurfaceProducerSurface>
           surface) override;
 
-  // |flutter::SceneUpdateContext::HasRetainedNode|
-  bool HasRetainedNode(const flutter::LayerRasterCacheKey& key) const override {
-    return surface_pool_->HasRetainedNode(key);
-  }
-
-  // |flutter::SceneUpdateContext::GetRetainedNode|
-  scenic::EntityNode* GetRetainedNode(
-      const flutter::LayerRasterCacheKey& key) override {
-    return surface_pool_->GetRetainedNode(key);
-  }
-
+  // |flutter::SceneUpdateContext::SurfaceProducer|
   void OnSurfacesPresented(
       std::vector<
           std::unique_ptr<flutter::SceneUpdateContext::SurfaceProducerSurface>>
-          surfaces);
-
-  void OnSessionSizeChangeHint(float width_change_factor,
-                               float height_change_factor) {
-    FX_LOGF(INFO, LOG_TAG,
-            "VulkanSurfaceProducer:OnSessionSizeChangeHint %f, %f",
-            width_change_factor, height_change_factor);
-  }
-
-  GrContext* gr_context() { return context_.get(); }
+          surfaces) override;
 
  private:
-  // VulkanProvider
+  // |flutter::VulkanProvider|
   const vulkan::VulkanProcTable& vk() override { return *vk_.get(); }
+
+  // |flutter::VulkanProvider|
   const vulkan::VulkanHandle<VkDevice>& vk_device() override {
     return logical_device_->GetHandle();
   }
+
+  bool Initialize(scenic::Session* scenic_session);
 
   bool TransitionSurfacesToExternal(
       const std::vector<
@@ -95,11 +92,7 @@ class VulkanSurfaceProducer final
   zx::time last_produce_time_ = async::Now(async_get_default_dispatcher());
   fml::WeakPtrFactory<VulkanSurfaceProducer> weak_factory_{this};
 
-  bool Initialize(scenic::Session* scenic_session);
-
-  // Disallow copy and assignment.
-  VulkanSurfaceProducer(const VulkanSurfaceProducer&) = delete;
-  VulkanSurfaceProducer& operator=(const VulkanSurfaceProducer&) = delete;
+  FML_DISALLOW_COPY_AND_ASSIGN(VulkanSurfaceProducer);
 };
 
 }  // namespace flutter_runner

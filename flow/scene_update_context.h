@@ -5,28 +5,38 @@
 #ifndef FLUTTER_FLOW_SCENE_UPDATE_CONTEXT_H_
 #define FLUTTER_FLOW_SCENE_UPDATE_CONTEXT_H_
 
-#include <cfloat>
+#include <fuchsia/ui/gfx/cpp/fidl.h>
+#include <fuchsia/ui/views/cpp/fidl.h>
+#include <lib/ui/scenic/cpp/resources.h>
+#include <lib/ui/scenic/cpp/session.h>
+#include <lib/ui/scenic/cpp/view_ref_pair.h>
+
+#include <functional>
 #include <memory>
-#include <set>
+#include <string>
 #include <vector>
 
-#include "flutter/flow/compositor_context.h"
-#include "flutter/flow/raster_cache_key.h"
-#include "flutter/fml/compiler_specific.h"
-#include "flutter/fml/logging.h"
+#include "flutter/flow/instrumentation.h"
+#include "flutter/flow/raster_cache.h"
+#include "flutter/flow/texture.h"
 #include "flutter/fml/macros.h"
-#include "lib/ui/scenic/cpp/resources.h"
+#include "third_party/skia/include/core/SkColor.h"
+#include "third_party/skia/include/core/SkMatrix.h"
 #include "third_party/skia/include/core/SkRect.h"
+#include "third_party/skia/include/core/SkScalar.h"
+#include "third_party/skia/include/core/SkSize.h"
 #include "third_party/skia/include/core/SkSurface.h"
+#include "third_party/skia/include/gpu/GrContext.h"
 
 namespace flutter {
 
 class Layer;
 
 // Scenic currently lacks an API to enable rendering of alpha channel; this only
-// happens if there is a OpacityNode higher in the tree with opacity != 1. For
-// now, clamp to a infinitesimally smaller value than 1, which does not cause
-// visual problems in practice.
+// happens if there is a OpacityNode higher in the tree with opacity != 1, or a
+// PaintTask creates a texture with transparent pixels (alpha != 1). For now,
+// clamp to a infinitesimally smaller value than 1, which does not cause visual
+// problems in practice.
 constexpr float kOneMinusEpsilon = 1 - FLT_EPSILON;
 
 // How much layers are separated in Scenic z elevation.
@@ -58,6 +68,12 @@ class SceneUpdateContext {
    public:
     virtual ~SurfaceProducer() = default;
 
+    // Query a retained entity node (owned by a retained surface) for retained
+    // rendering.
+    virtual bool HasRetainedNode(const LayerRasterCacheKey& key) const = 0;
+    virtual scenic::EntityNode* GetRetainedNode(
+        const LayerRasterCacheKey& key) = 0;
+
     // The produced surface owns the entity_node and has a layer_key for
     // retained rendering. The surface will only be retained if the layer_key
     // has a non-null layer pointer (layer_key.id()).
@@ -66,14 +82,12 @@ class SceneUpdateContext {
         const LayerRasterCacheKey& layer_key,
         std::unique_ptr<scenic::EntityNode> entity_node) = 0;
 
-    // Query a retained entity node (owned by a retained surface) for retained
-    // rendering.
-    virtual bool HasRetainedNode(const LayerRasterCacheKey& key) const = 0;
-    virtual scenic::EntityNode* GetRetainedNode(
-        const LayerRasterCacheKey& key) = 0;
-
     virtual void SubmitSurface(
         std::unique_ptr<SurfaceProducerSurface> surface) = 0;
+
+    virtual void OnSurfacesPresented(
+        std::vector<std::unique_ptr<
+            flutter::SceneUpdateContext::SurfaceProducerSurface>> surfaces) = 0;
   };
 
   class Entity {
@@ -141,19 +155,27 @@ class SceneUpdateContext {
     ~Clip() = default;
   };
 
-  SceneUpdateContext(scenic::Session* session,
-                     SurfaceProducer* surface_producer);
-  ~SceneUpdateContext() = default;
+  SceneUpdateContext(std::string debug_label,
+                     fuchsia::ui::views::ViewToken view_token,
+                     scenic::ViewRefPair view_ref_pair,
+                     std::unique_ptr<SurfaceProducer> surface_producer,
+                     scenic::Session* session);
+  ~SceneUpdateContext();
 
   scenic::Session* session() { return session_; }
-
+  scenic::ContainerNode& root_node() { return root_node_; }
   Entity* top_entity() { return top_entity_; }
 
-  bool has_metrics() const { return !!metrics_; }
-  void set_metrics(fuchsia::ui::gfx::MetricsPtr metrics) {
-    metrics_ = std::move(metrics);
+  SurfaceProducer* surface_producer() { return surface_producer_.get(); }
+
+  bool has_metrics() const {
+    return metrics_.scale_x != 0.0f && metrics_.scale_y != 0.0f &&
+           metrics_.scale_z != 0.0f;
   }
-  const fuchsia::ui::gfx::MetricsPtr& metrics() const { return metrics_; }
+  void set_metrics(const fuchsia::ui::gfx::Metrics& metrics) {
+    metrics_ = metrics;
+  }
+  const fuchsia::ui::gfx::Metrics& metrics() const { return metrics_; }
 
   void set_dimensions(const SkISize& frame_physical_size,
                       float frame_physical_depth,
@@ -166,30 +188,15 @@ class SceneUpdateContext {
   float frame_physical_depth() const { return frame_physical_depth_; }
   float frame_device_pixel_ratio() const { return frame_device_pixel_ratio_; }
 
-  // TODO(chinmaygarde): This method must submit the surfaces as soon as paint
-  // tasks are done. However, given that there is no support currently for
-  // Vulkan semaphores, we need to submit all the surfaces after an explicit
-  // CPU wait. Once Vulkan semaphores are available, this method must return
-  // void and the implementation must submit surfaces on its own as soon as the
-  // specific canvas operations are done.
-  [[nodiscard]] std::vector<std::unique_ptr<SurfaceProducerSurface>>
-  ExecutePaintTasks(CompositorContext::ScopedFrame& frame);
-
-  float ScaleX() const { return metrics_->scale_x * top_scale_x_; }
-  float ScaleY() const { return metrics_->scale_y * top_scale_y_; }
-
   // The transformation matrix of the current context. It's used to construct
   // the LayerRasterCacheKey for a given layer.
-  SkMatrix Matrix() const { return SkMatrix::MakeScale(ScaleX(), ScaleY()); }
-
-  bool HasRetainedNode(const LayerRasterCacheKey& key) const {
-    return surface_producer_->HasRetainedNode(key);
-  }
-  scenic::EntityNode* GetRetainedNode(const LayerRasterCacheKey& key) {
-    return surface_producer_->GetRetainedNode(key);
+  SkMatrix Matrix() const {
+    return SkMatrix::MakeScale(metrics_.scale_x * top_scale_x_,
+                               metrics_.scale_y * top_scale_y_);
   }
 
-  // The cumulative alpha value based on all the parent OpacityLayers.
+  // The opacity value of the current context.  It's based on all the parent
+  // OpacityLayers at a given point in the traversal.
   void set_alphaf(float alpha) { alpha_ = alpha; }
   float alphaf() { return alpha_; }
 
@@ -203,6 +210,22 @@ class SceneUpdateContext {
     topmost_global_scenic_elevation_ += kScenicZElevationBetweenLayers;
     return elevation;
   }
+
+  bool HasRetainedNode(const LayerRasterCacheKey& key) const {
+    return surface_producer_->HasRetainedNode(key);
+  }
+  scenic::EntityNode* GetRetainedNode(const LayerRasterCacheKey& key) {
+    return surface_producer_->GetRetainedNode(key);
+  }
+
+  void SetDebugViewBoundsEnabled(bool enable);
+  void EnqueueClearOps();
+
+  void ExecutePaintTasks(const Stopwatch& raster_time,
+                         const Stopwatch& ui_time,
+                         TextureRegistry& texture_registry,
+                         const RasterCache* raster_cache,
+                         GrContext* gr_context);
 
  private:
   struct PaintTask {
@@ -231,8 +254,6 @@ class SceneUpdateContext {
   void SetMaterialTextureAndColor(scenic::Material& material,
                                   SkColor color,
                                   SkAlpha opacity,
-                                  SkScalar scale_x,
-                                  SkScalar scale_y,
                                   const SkRect& paint_bounds,
                                   std::vector<Layer*> paint_layers,
                                   Layer* layer,
@@ -241,31 +262,31 @@ class SceneUpdateContext {
                         SkColor color,
                         SkAlpha opacity);
   scenic::Image* GenerateImageIfNeeded(SkColor color,
-                                       SkScalar scale_x,
-                                       SkScalar scale_y,
                                        const SkRect& paint_bounds,
                                        std::vector<Layer*> paint_layers,
                                        Layer* layer,
                                        scenic::EntityNode entity_node);
 
-  Entity* top_entity_ = nullptr;
-  float top_scale_x_ = 1.f;
-  float top_scale_y_ = 1.f;
-
   scenic::Session* const session_;
-  SurfaceProducer* const surface_producer_;
+  scenic::View root_view_;
+  scenic::EntityNode root_node_;
 
-  fuchsia::ui::gfx::MetricsPtr metrics_;
-  SkISize frame_physical_size_;
+  std::unique_ptr<SurfaceProducer> surface_producer_;
+  std::vector<PaintTask> paint_tasks_;
+
+  fuchsia::ui::gfx::Metrics metrics_ = {0.0f, 0.0f, 0.0f};
+  SkISize frame_physical_size_ = {0, 0};
   float frame_physical_depth_ = 0.0f;
   float frame_device_pixel_ratio_ =
       1.0f;  // Ratio between logical and physical pixels.
 
+  Entity* top_entity_ = nullptr;
+  float top_scale_x_ = 1.f;
+  float top_scale_y_ = 1.f;
+
   float alpha_ = 1.0f;
   float scenic_elevation_ = 0.f;
   float topmost_global_scenic_elevation_ = kScenicZElevationBetweenLayers;
-
-  std::vector<PaintTask> paint_tasks_;
 
   FML_DISALLOW_COPY_AND_ASSIGN(SceneUpdateContext);
 };

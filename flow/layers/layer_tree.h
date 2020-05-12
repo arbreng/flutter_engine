@@ -18,6 +18,10 @@
 
 namespace flutter {
 
+#if defined(OS_FUCHSIA)
+class SceneUpdateContext;
+#endif
+
 class LayerTree {
  public:
   LayerTree(const SkISize& frame_size,
@@ -35,8 +39,7 @@ class LayerTree {
                bool ignore_raster_cache = false);
 
 #if defined(OS_FUCHSIA)
-  void UpdateScene(SceneUpdateContext& context,
-                   scenic::ContainerNode& container);
+  void UpdateScene(SceneUpdateContext& context);
 #endif
 
   void Paint(CompositorContext::ScopedFrame& frame,

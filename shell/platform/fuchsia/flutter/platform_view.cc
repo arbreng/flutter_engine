@@ -90,7 +90,6 @@ PlatformView::PlatformView(
         session_listener_request,
     fit::closure session_listener_error_callback,
     OnMetricsUpdate session_metrics_did_change_callback,
-    OnSizeChangeHint session_size_change_hint_callback,
     OnEnableWireframe wireframe_enabled_callback,
     zx_handle_t vsync_event_handle,
     FlutterRunnerProductConfiguration product_config)
@@ -101,7 +100,6 @@ PlatformView::PlatformView(
       session_listener_error_callback_(
           std::move(session_listener_error_callback)),
       metrics_changed_callback_(std::move(session_metrics_did_change_callback)),
-      size_change_hint_callback_(std::move(session_size_change_hint_callback)),
       wireframe_enabled_callback_(std::move(wireframe_enabled_callback)),
       ime_client_(this),
       surface_(std::make_unique<Surface>(debug_label_)),
@@ -307,12 +305,6 @@ void PlatformView::OnScenicEvent(
               metrics_changed_callback_(scenic_metrics_);
               UpdateViewportMetrics(scenic_metrics_);
             }
-            break;
-          }
-          case fuchsia::ui::gfx::Event::Tag::kSizeChangeHint: {
-            size_change_hint_callback_(
-                event.gfx().size_change_hint().width_change_factor,
-                event.gfx().size_change_hint().height_change_factor);
             break;
           }
           case fuchsia::ui::gfx::Event::Tag::kViewPropertiesChanged: {

@@ -62,23 +62,20 @@ bool LayerTree::Preroll(CompositorContext::ScopedFrame& frame,
 }
 
 #if defined(OS_FUCHSIA)
-void LayerTree::UpdateScene(SceneUpdateContext& context,
-                            scenic::ContainerNode& container) {
+void LayerTree::UpdateScene(SceneUpdateContext& context) {
   TRACE_EVENT0("flutter", "LayerTree::UpdateScene");
 
   // Ensure the context is aware of the view metrics.
   context.set_dimensions(frame_size_, frame_physical_depth_,
                          frame_device_pixel_ratio_);
 
+  FML_DCHECK(context.has_metrics());
   const auto& metrics = context.metrics();
-  FML_DCHECK(metrics->scale_x > 0.0f);
-  FML_DCHECK(metrics->scale_y > 0.0f);
-  FML_DCHECK(metrics->scale_z > 0.0f);
 
-  SceneUpdateContext::Transform transform(context,                  // context
-                                          1.0f / metrics->scale_x,  // X
-                                          1.0f / metrics->scale_y,  // Y
-                                          1.0f / metrics->scale_z   // Z
+  SceneUpdateContext::Transform transform(context,                 // context
+                                          1.0f / metrics.scale_x,  // X
+                                          1.0f / metrics.scale_y,  // Y
+                                          1.0f / metrics.scale_z   // Z
   );
 
   SceneUpdateContext::Frame frame(
@@ -92,7 +89,7 @@ void LayerTree::UpdateScene(SceneUpdateContext& context,
   if (root_layer_->needs_painting()) {
     frame.AddPaintLayer(root_layer_.get());
   }
-  container.AddChild(transform.entity_node());
+  context.root_node().AddChild(transform.entity_node());
 }
 #endif
 
