@@ -144,8 +144,9 @@ Engine::Engine(Delegate& delegate,
        vsync_offset = product_config.get_vsync_offset()]() mutable {
         session_connection_ = std::make_shared<DefaultSessionConnection>(
             thread_label_, std::move(session),
-            std::move(session_error_callback), [](auto) {},
-            max_frames_in_flight, vsync_offset);
+            std::move(session_error_callback),
+            []() -> fml::TimePoint { return fml::TimePoint::Now(); },
+            [](auto) {}, max_frames_in_flight, vsync_offset);
         surface_producer_.emplace(session_connection_->get());
 #if defined(LEGACY_FUCHSIA_EMBEDDER)
         if (use_legacy_renderer_) {

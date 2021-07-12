@@ -444,15 +444,17 @@ executable("flutter_runner_unittests") {
   output_name = "flutter_runner_tests"
 
   sources = [
-    "accessibility_bridge_unittest.cc",
-    "component_unittest.cc",
-    "flutter_runner_fakes.h",
-    "fuchsia_intl_unittest.cc",
-    "keyboard_unittest.cc",
-    "platform_view_unittest.cc",
-    "runner_unittest.cc",
-    "tests/engine_unittests.cc",
-    "tests/flutter_runner_product_configuration_unittests.cc",
+    #"accessibility_bridge_unittest.cc",
+    #"component_unittest.cc",
+    #"flutter_runner_fakes.h",
+    #"fuchsia_intl_unittest.cc",
+    #"keyboard_unittest.cc",
+    #"platform_view_unittest.cc",
+    #"runner_unittest.cc",
+    #"tests/engine_unittests.cc",
+    #"tests/flutter_runner_product_configuration_unittests.cc",
+    "tests/fuchsia_external_view_embedder_unittests.cc",
+    "tests/session_connection_unittests.cc",
   ]
 
   # This is needed for //third_party/googletest for linking zircon symbols.
@@ -473,6 +475,8 @@ executable("flutter_runner_unittests") {
   deps = [
            ":flutter_runner_fixtures",
            ":flutter_runner_sources",
+           "tests/fakes",
+           "//build/fuchsia/pkg:async-testing",
            "//build/fuchsia/pkg:sys_cpp_testing",
            "//flutter/testing",
          ] + flutter_deps

@@ -65,7 +65,7 @@ FuchsiaExternalViewEmbedder::FuchsiaExternalViewEmbedder(
     fuchsia::ui::views::ViewToken view_token,
     scenic::ViewRefPair view_ref_pair,
     DefaultSessionConnection& session,
-    VulkanSurfaceProducer& surface_producer,
+    SurfaceProducer& surface_producer,
     bool intercept_all_input)
     : session_(session),
       surface_producer_(surface_producer),
@@ -494,7 +494,7 @@ void FuchsiaExternalViewEmbedder::SubmitFrame(
   {
     TRACE_EVENT0("flutter", "PresentSurfaces");
 
-    surface_producer_.OnSurfacesPresented(std::move(frame_surfaces));
+    surface_producer_.SubmitSurfaces(std::move(frame_surfaces));
   }
 
   // Submit the underlying render-backend-specific frame for processing.

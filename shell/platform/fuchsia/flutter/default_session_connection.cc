@@ -7,6 +7,7 @@
 #include "flutter/fml/make_copyable.h"
 #include "flutter/fml/trace_event.h"
 
+#include "fml/time/time_point.h"
 #include "vsync_waiter.h"
 
 namespace flutter_runner {
@@ -73,10 +74,10 @@ FlutterFrameTimes DefaultSessionConnection::GetTargetTimes(
       "flutter", "DefaultSessionConnection::GetTargetTimes",
       "previous_vsync(ms)", previous_vsync.ToEpochDelta().ToMilliseconds(),
       "last_targeted(ms)", last_targeted_vsync.ToEpochDelta().ToMilliseconds(),
-      "now(ms)", fml::TimePoint::Now().ToEpochDelta().ToMilliseconds(),
-      "next_vsync(ms))", next_vsync.ToEpochDelta().ToMilliseconds(),
-      "frame_start_time(ms)", frame_start_time.ToEpochDelta().ToMilliseconds(),
-      "frame_end_time(ms)", frame_end_time.ToEpochDelta().ToMilliseconds());
+      "now(ms)", now.ToEpochDelta().ToMilliseconds(), "next_vsync(ms))",
+      next_vsync.ToEpochDelta().ToMilliseconds(), "frame_start_time(ms)",
+      frame_start_time.ToEpochDelta().ToMilliseconds(), "frame_end_time(ms)",
+      frame_end_time.ToEpochDelta().ToMilliseconds());
 
   return {frame_start_time, frame_end_time};
 }
@@ -147,7 +148,7 @@ fml::TimePoint DefaultSessionConnection::SnapToNextPhase(
     return now;
   }
 
-  if (last_frame_presentation_time >= now) {
+  if (last_frame_presentation_time > now) {
     FML_LOG(WARNING)
         << "Last frame was presented in the future. Clamping to now.";
     return now + presentation_interval;
@@ -171,13 +172,18 @@ DefaultSessionConnection::DefaultSessionConnection(
     std::string debug_label,
     fidl::InterfaceHandle<fuchsia::ui::scenic::Session> session,
     fml::closure session_error_callback,
+    GetNowCallback get_now_callback,
     on_frame_presented_event on_frame_presented_callback,
     uint64_t max_frames_in_flight,
     fml::TimeDelta vsync_offset)
     : session_wrapper_(session.Bind(), nullptr),
+      get_now_callback_(std::move(get_now_callback)),
       on_frame_presented_callback_(std::move(on_frame_presented_callback)),
       kMaxFramesInFlight(max_frames_in_flight),
       vsync_offset_(vsync_offset) {
+  FML_CHECK(get_now_callback_);
+
+  last_presentation_time_ = Now();
   next_presentation_info_.set_presentation_time(0);
 
   session_wrapper_.set_error_handler(
@@ -251,7 +257,7 @@ void DefaultSessionConnection::Present() {
                    next_present_session_trace_id_);
   next_present_session_trace_id_++;
 
-  present_requested_time_ = fml::TimePoint::Now();
+  present_requested_time_ = Now();
 
   // Throttle frame submission to Scenic if we already have the maximum amount
   // of frames in flight. This allows the paint tasks for this frame to execute
@@ -317,8 +323,7 @@ void DefaultSessionConnection::PresentSession() {
       GetCurrentVsyncInfo().presentation_interval;
 
   fml::TimePoint next_latch_point = CalculateNextLatchPoint(
-      fml::TimePoint::Now(), present_requested_time_,
-      last_latch_point_targeted_,
+      Now(), present_requested_time_, last_latch_point_targeted_,
       fml::TimeDelta::FromMicroseconds(0),  // flutter_frame_build_time
       presentation_interval, future_presentation_infos_);
 
@@ -376,7 +381,7 @@ FlutterFrameTimes DefaultSessionConnection::GetTargetTimesHelper(
       GetCurrentVsyncInfo().presentation_interval;
 
   fml::TimePoint next_vsync = GetCurrentVsyncInfo().presentation_time;
-  fml::TimePoint now = fml::TimePoint::Now();
+  fml::TimePoint now = Now();
   fml::TimePoint last_presentation_time = last_presentation_time_;
   if (next_vsync <= now) {
     next_vsync =

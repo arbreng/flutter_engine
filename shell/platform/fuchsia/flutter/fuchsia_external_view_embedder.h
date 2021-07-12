@@ -28,7 +28,7 @@
 #include "third_party/skia/include/gpu/GrDirectContext.h"
 
 #include "default_session_connection.h"
-#include "vulkan_surface_producer.h"
+#include "vulkan_surface.h"
 
 namespace flutter_runner {
 
@@ -44,7 +44,7 @@ class FuchsiaExternalViewEmbedder final : public flutter::ExternalViewEmbedder {
                               fuchsia::ui::views::ViewToken view_token,
                               scenic::ViewRefPair view_ref_pair,
                               DefaultSessionConnection& session,
-                              VulkanSurfaceProducer& surface_producer,
+                              SurfaceProducer& surface_producer,
                               bool intercept_all_input = false);
   ~FuchsiaExternalViewEmbedder();
 
@@ -151,7 +151,7 @@ class FuchsiaExternalViewEmbedder final : public flutter::ExternalViewEmbedder {
   constexpr static EmbedderLayerId kRootLayerId = EmbedderLayerId{};
 
   DefaultSessionConnection& session_;
-  VulkanSurfaceProducer& surface_producer_;
+  SurfaceProducer& surface_producer_;
 
   scenic::View root_view_;
   scenic::EntityNode metrics_node_;

@@ -139,7 +139,7 @@ class ScopedFrame final : public flutter::CompositorContext::ScopedFrame {
 
       // Tell the surface producer that a present has occurred so it can perform
       // book-keeping on buffer caches.
-      surface_producer_.OnSurfacesPresented(std::move(frame_surfaces));
+      surface_producer_.SubmitSurfaces(std::move(frame_surfaces));
     }
 
     return flutter::RasterStatus::kSuccess;

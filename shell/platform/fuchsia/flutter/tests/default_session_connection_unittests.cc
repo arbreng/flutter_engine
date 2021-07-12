@@ -11,6 +11,7 @@
 #include "flutter/shell/platform/fuchsia/flutter/default_session_connection.h"
 #include "flutter/shell/platform/fuchsia/flutter/logging.h"
 #include "flutter/shell/platform/fuchsia/flutter/runner.h"
+#include "fml/time/time_point.h"
 #include "gtest/gtest.h"
 
 using namespace flutter_runner;
@@ -88,6 +89,7 @@ TEST_F(DefaultSessionConnectionTest, SimplePresent) {
 
   flutter_runner::DefaultSessionConnection session_connection(
       "debug label", std::move(session_), on_session_error_callback,
+      []() -> fml::TimePoint { return fml::TimePoint::Now(); },
       on_frame_presented_callback, 3, fml::TimeDelta::FromSeconds(0));
 
   for (int i = 0; i < 200; ++i) {
@@ -110,6 +112,7 @@ TEST_F(DefaultSessionConnectionTest, BatchedPresent) {
 
   flutter_runner::DefaultSessionConnection session_connection(
       "debug label", std::move(session_), on_session_error_callback,
+      []() -> fml::TimePoint { return fml::TimePoint::Now(); },
       on_frame_presented_callback, 3, fml::TimeDelta::FromSeconds(0));
 
   for (int i = 0; i < 200; ++i) {
@@ -134,6 +137,7 @@ TEST_F(DefaultSessionConnectionTest, AwaitVsync) {
 
   flutter_runner::DefaultSessionConnection session_connection(
       "debug label", std::move(session_), on_session_error_callback,
+      []() -> fml::TimePoint { return fml::TimePoint::Now(); },
       on_frame_presented_callback, 3, fml::TimeDelta::FromSeconds(0));
 
   uint64_t await_vsyncs_handled = 0;
@@ -161,6 +165,7 @@ TEST_F(DefaultSessionConnectionTest, EnsureBackpressureForAwaitVsync) {
 
   flutter_runner::DefaultSessionConnection session_connection(
       "debug label", std::move(session_), on_session_error_callback,
+      []() -> fml::TimePoint { return fml::TimePoint::Now(); },
       on_frame_presented_callback, 0, fml::TimeDelta::FromSeconds(0));
 
   uint64_t await_vsyncs_handled = 0;
@@ -188,6 +193,7 @@ TEST_F(DefaultSessionConnectionTest, SecondaryCallbackShouldFireRegardless) {
 
   flutter_runner::DefaultSessionConnection session_connection(
       "debug label", std::move(session_), on_session_error_callback,
+      []() -> fml::TimePoint { return fml::TimePoint::Now(); },
       on_frame_presented_callback, 0, fml::TimeDelta::FromSeconds(0));
 
   // We're going to expect *only* secondary callbacks to be triggered.
@@ -222,6 +228,7 @@ TEST_F(DefaultSessionConnectionTest, AwaitVsyncBackpressureRelief) {
 
   flutter_runner::DefaultSessionConnection session_connection(
       "debug label", std::move(session_), on_session_error_callback,
+      []() -> fml::TimePoint { return fml::TimePoint::Now(); },
       on_frame_presented_callback, 1, fml::TimeDelta::FromSeconds(0));
 
   uint64_t await_vsyncs_handled = 0;

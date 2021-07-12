@@ -20,6 +20,7 @@
 
 namespace flutter_runner {
 
+using GetNowCallback = std::function<fml::TimePoint()>;
 using on_frame_presented_event =
     std::function<void(fuchsia::scenic::scheduling::FramePresentedInfo)>;
 
@@ -76,6 +77,7 @@ class DefaultSessionConnection final : public flutter::SessionWrapper {
       std::string debug_label,
       fidl::InterfaceHandle<fuchsia::ui::scenic::Session> session,
       fml::closure session_error_callback,
+      GetNowCallback get_now_callback,
       on_frame_presented_event on_frame_presented_callback,
       uint64_t max_frames_in_flight,
       fml::TimeDelta vsync_offset);
@@ -84,6 +86,8 @@ class DefaultSessionConnection final : public flutter::SessionWrapper {
 
   // |SessionWrapper|
   scenic::Session* get() override { return &session_wrapper_; }
+
+  fml::TimePoint Now() { return get_now_callback_(); }
 
   // |SessionWrapper|
   void Present() override;
@@ -98,17 +102,15 @@ class DefaultSessionConnection final : public flutter::SessionWrapper {
   void FireCallbackMaybe();
 
   FlutterFrameTimes GetTargetTimesHelper(bool secondary_callback);
-
   VsyncInfo GetCurrentVsyncInfo() const;
 
   scenic::Session session_wrapper_;
 
+  GetNowCallback get_now_callback_;
   on_frame_presented_event on_frame_presented_callback_;
 
-  fml::TimePoint last_latch_point_targeted_ =
-      fml::TimePoint::FromEpochDelta(fml::TimeDelta::Zero());
-  fml::TimePoint present_requested_time_ =
-      fml::TimePoint::FromEpochDelta(fml::TimeDelta::Zero());
+  fml::TimePoint last_latch_point_targeted_;
+  fml::TimePoint present_requested_time_;
 
   std::deque<std::pair<fml::TimePoint, fml::TimePoint>>
       future_presentation_infos_ = {};
@@ -137,7 +139,7 @@ class DefaultSessionConnection final : public flutter::SessionWrapper {
   fml::TimeDelta vsync_offset_;
 
   // Variables for recording past and future vsync info, as reported by Scenic.
-  fml::TimePoint last_presentation_time_ = fml::TimePoint::Now();
+  fml::TimePoint last_presentation_time_;
   fuchsia::scenic::scheduling::PresentationInfo next_presentation_info_;
 
   // Flutter framework pipeline logic.

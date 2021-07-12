@@ -49,8 +49,8 @@ class SurfaceProducer {
   virtual std::unique_ptr<SurfaceProducerSurface> ProduceSurface(
       const SkISize& size) = 0;
 
-  virtual void SubmitSurface(
-      std::unique_ptr<SurfaceProducerSurface> surface) = 0;
+  virtual void SubmitSurfaces(
+      std::vector<std::unique_ptr<SurfaceProducerSurface>> surfaces) = 0;
 };
 
 // A |VkImage| and its relevant metadata.
